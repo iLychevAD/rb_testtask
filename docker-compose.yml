@@ -1,0 +1,67 @@
+version: "3"
+
+services:
+  zookeeper:
+    image: docker.io/bitnami/zookeeper:3.7
+    volumes:
+      - "./zookeeper/zookeeper_jaas.conf:/opt/bitnami/zookeeper/conf/zookeeper_jaas.conf:ro" # SASL config
+      - "./zookeeper/zoo.cfg:/opt/bitnami/zookeeper/conf/zoo.cfg:ro"                         # Zookeeper settings
+      - "./zookeeper/java.env:/opt/bitnami/zookeeper/conf/java.env:ro"                       # Attach SASL config
+    environment:
+      - ALLOW_ANONYMOUS_LOGIN=yes
+
+  kafka:
+    build: ./kafka
+    image: bitnami-kafka-3-libfaketime
+    ports:
+      - "9093:9093"
+    volumes:
+      - "./x509/keystore_server.jks:/bitnami/kafka/config/certs/kafka.keystore.jks:ro"
+      - "./x509/truststore.jks:/bitnami/kafka/config/certs/kafka.truststore.jks:ro"
+      - "./kafka/kafka_jaas.conf:/opt/bitnami/kafka/config/kafka_jaas.conf:ro"
+    environment:
+      # Make the 'CN=admin' TLS principal the admin user (i.e. grant full permissions over topics and ACLs)
+      - KAFKA_CFG_SUPER_USERS=User:CN=admin;User:CN=kafka;User:broker
+      # Attach file with SASL config for Zookeeper and inter-broker communication
+      - KAFKA_OPTS="-Djava.security.auth.login.config=/opt/bitnami/kafka/config/kafka_jaas.conf"
+      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+      # Otherwise the broker in Bitnami image doesnt start and requires KAFKA_ZOOKEEPER_PROTOCOL=SSL
+      - ALLOW_PLAINTEXT_LISTENER=yes 
+      # SSL is for clients, SALS is for inter-broker
+      - KAFKA_CFG_LISTENERS=SSL://:9093,PLAINTEXT://:9092,SASL_PLAINTEXT://:9091 
+      - KAFKA_CFG_ADVERTISED_LISTENERS=SSL://:9093,PLAINTEXT://:9092,SASL_PLAINTEXT://:9091
+      - KAFKA_CFG_SSL_CLIENT_AUTH=required
+      - KAFKA_TLS_TYPE=JKS
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=false
+      - KAFKA_CFG_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM=''
+      # Server TLS settings
+      - KAFKA_CFG_AUTHORIZER_CLASS_NAME=kafka.security.authorizer.AclAuthorizer
+      - KAFKA_CFG_SSL_TRUSTSTORE_LOCATION=/bitnami/kafka/config/certs/kafka.truststore.jks
+      - KAFKA_CFG_SSL_TRUSTSTORE_PASSWORD=changeit
+      - KAFKA_CFG_SSL_KEYSTORE_LOCATION=/bitnami/kafka/config/certs/kafka.keystore.jks
+      - KAFKA_CFG_SSL_KEYSTORE_PASSWORD=changeit
+      - KAFKA_CFG_SSL_KEY_PASSWORD=changeit
+      # Inter-broker configuration
+      - KAFKA_CFG_SECURITY_INTER_BROKER_PROTOCOL=SASL_PLAINTEXT
+      - KAFKA_CFG_SASL_ENABLED_MECHANISMS=PLAIN
+      - KAFKA_CFG_SASL_MECHANISM_INTER_BROKER_PROTOCOL=PLAIN
+      - KAFKA_INTER_BROKER_USER=broker
+      - KAFKA_INTER_BROKER_PASSWORD=broker
+      # Use "-Djavax.net.debug=all" to debug SSL
+    depends_on:
+      - zookeeper
+
+  client:
+    build: ./kafka
+    image: bitnami-kafka-3-libfaketime
+    command:
+      - sleep
+      - infinity
+    volumes:
+      - "./x509:/x509:ro"
+      - "./check_scripts:/check_scripts"
+      - "./properties:/properties"
+    depends_on:
+      - kafka
+
+
